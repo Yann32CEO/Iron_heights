@@ -1,4 +1,7 @@
-# Iron Heights V2
+# Iron Heights
+
+<img width="1584" height="672" alt="image" src="https://github.com/user-attachments/assets/3c031e17-579f-4994-b479-8f79236cc8de" />
+
 
 Iron Heights is a is a prison-escape themed cybersecurity lab built with: 
 - an Angular frontend,
