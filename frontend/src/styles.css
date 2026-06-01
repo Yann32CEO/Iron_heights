@@ -1,0 +1,26 @@
+:root {
+  --page-bg: #120b09;
+  --button-bg: #8d5d41;
+  --button-bg-hover: #b57b57;
+  --button-border: #d7b18d;
+  --button-text: #f8ead7;
+  --muted-glow: rgba(213, 179, 142, 0.18);
+  --panel-bg: rgba(15, 8, 7, 0.66);
+  --panel-bg-strong: rgba(12, 8, 7, 0.82);
+  --panel-border: rgba(213, 179, 142, 0.24);
+  --panel-shadow: 0 28px 72px rgba(0, 0, 0, 0.54);
+  --text-soft: rgba(248, 234, 215, 0.82);
+  --text-muted: rgba(248, 234, 215, 0.62);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; min-height: 100%; }
+body {
+  font-family: Inter, "Segoe UI", Roboto, sans-serif;
+  background: var(--page-bg);
+  color: var(--button-text);
+  letter-spacing: 0.01em;
+}
+
+a { color: inherit; text-decoration: none; }
+button, input, textarea, select { font: inherit; }
