@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 class Phase1CellLock(BaseModel):
     code: str = "19603383717426"
-    ciphertext: str = "6f8c1d4a90b37f2c8e51a04b6a54f91d8c2a7e9f4d1bce7a9035f1b6c48d2e109f6b7a1d4c3e8f209b1a6d5c7e4f8a21"
+    ciphertext: str = "50654a0e1e9cb9b8657728106645"
 
 
 class LostBadgeState(BaseModel):
