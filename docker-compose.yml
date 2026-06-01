@@ -1,0 +1,97 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: prod
+    container_name: ironheightsv2-backend
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      APP_PORT: 8086
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      PHASE3_JWT_SECRET: ${PHASE3_JWT_SECRET}
+      PHASE3_AES_PASSWORD: ${PHASE3_AES_PASSWORD}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS}
+      API_BASE_URL: ${API_BASE_URL:-http://backend:8086}
+      ARTEMIS_OLLAMA_ENABLED: ${ARTEMIS_OLLAMA_ENABLED:-true}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:0.5b-instruct}
+      OLLAMA_TIMEOUT_MS: ${OLLAMA_TIMEOUT_MS:-6000}
+      FLAG_PHASE1_CELL: ${FLAG_PHASE1_CELL}
+      FLAG_PHASE1_UNIFORM: ${FLAG_PHASE1_UNIFORM}
+      FLAG_PHASE2_DIRECTOR: ${FLAG_PHASE2_DIRECTOR}
+      FLAG_PHASE3_RELAY: ${FLAG_PHASE3_RELAY}
+      FLAG_PHASE3_ROOF: ${FLAG_PHASE3_ROOF}
+      FLAG_FINAL: ${FLAG_FINAL}
+      PATH: /opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8086/api/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - ironheights-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: prod
+    container_name: ironheightsv2-frontend
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      BACKEND_URL: http://backend:8086
+      FRONTEND_ALLOWED_ORIGINS: ${FRONTEND_ALLOWED_ORIGINS:-http://localhost:4000,http://127.0.0.1:4000}
+      PATH: /app/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('node:http').get('http://localhost:4000', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - ironheights-net
+
+  db:
+    image: postgres:16-bookworm
+    container_name: ironheightsv2-db
+    shm_size: "256mb"
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - /mnt/second/ironheightsv2/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 40s
+    networks:
+      - ironheights-net
+
+networks:
+  ironheights-net:
+    driver: bridge
