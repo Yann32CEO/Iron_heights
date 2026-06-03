@@ -27,7 +27,7 @@ import { ExposurePayload, Phase2State } from './phase2.types';
           <section class="phase2-panel phase2-panel--terminal">
             <span class="code-panel__eyebrow">ARTEMIS // Facility Operations Assistant</span>
             <h1 class="code-panel__title">Operational Support Console</h1>
-            <div class="artemis-console__meta"><span>Prompt window</span><strong>{{ promptCount }} / 3</strong></div>
+            <div class="artemis-console__meta"><span>Prompt window</span><strong>{{ promptCount }} / {{ promptLimit }}</strong></div>
             <div class="artemis-console__reply" [class.artemis-console__reply--thinking]="thinking">{{ thinking ? 'thinking...' : reply }}</div>
             <form class="changing-room-form" (ngSubmit)="submitPrompt()">
               <input class="code-panel__input" type="text" [(ngModel)]="prompt" name="prompt" placeholder="Ask ARTEMIS" />
@@ -55,6 +55,8 @@ export class ArtemisComponent implements OnInit {
   protected prompt = '';
   protected reply = '';
   protected promptCount = 0;
+  // Must stay aligned with the backend ARTEMIS_PROMPT_LIMIT capture threshold.
+  protected readonly promptLimit = 10;
   protected submitting = false;
   protected thinking = false;
   protected captured = false;
@@ -75,7 +77,7 @@ export class ArtemisComponent implements OnInit {
       next: (result) => {
         this.thinking = false; this.submitting = false;
         if (result.busted) { this.bustedMessage = result.bustedMessage; return; }
-        if (result.captured) { this.captured = true; return; }
+        if (result.captured) { this.promptCount = result.promptCount; this.captured = true; return; }
         const changed = result.exposure.state !== this.exposure.state || result.exposure.message !== this.exposure.message;
         this.reply = result.reply || 'ARTEMIS returned no usable output.';
         this.exposure = result.exposure; this.promptCount = result.promptCount; this.prompt = '';
