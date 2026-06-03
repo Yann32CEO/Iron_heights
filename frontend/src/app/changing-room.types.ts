@@ -24,7 +24,8 @@ export interface LostBadgeResponse {
 export interface UniformClaimsResponse {
   success: boolean;
   message: string;
-  rows: Record<string, unknown>[];
+  matched: boolean;
+  error: boolean;
 }
 
 export interface ClosetState {
