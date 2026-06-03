@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import re
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -49,14 +48,15 @@ TARGET_CLAIM_BASE = {
     "storage_bin": "BIN-12",
 }
 
-UNION_GRAMMAR_PATTERN = re.compile(
-    r"^.*'\s+UNION\s+SELECT\s+.+\s+FROM\s+uniform_claims(?:\s+WHERE\s+.+?)?\s*--\s*$",
-    re.IGNORECASE,
-)
-BLOCKED_INJECTION_PATTERN = re.compile(
-    r"(or\s+1\s*=\s*1|drop\s+table|insert\s+into|delete\s+from|update\s+\w+\s+set|;)",
-    re.IGNORECASE,
-)
+CLAIM_FILTER_COLUMNS = {
+    "guard_id",
+    "guard_name",
+    "locker",
+    "shift",
+    "uniform_size",
+    "fabric_type",
+    "wash_cycle",
+}
 
 
 @dataclass(frozen=True)
@@ -68,6 +68,12 @@ class UniformClaimRow:
     fabric_type: str
     wash_cycle: str
     storage_bin: str
+
+
+@dataclass(frozen=True)
+class UniformClaimSearchResult:
+    matched: bool = False
+    error: bool = False
 
 
 class UniformClaimsService:
@@ -114,20 +120,17 @@ class UniformClaimsService:
                     )
                 )
 
-    def execute_query(self, session_key: str, query_filter: str, filter_value: str) -> list[dict]:
-        if query_filter != "uniform_size":
-            return []
-        # Keep the V1-style grammar broad; Postgres should decide whether the selected expression is valid.
-        if not UNION_GRAMMAR_PATTERN.match(filter_value or ""):
-            return []
-        if BLOCKED_INJECTION_PATTERN.search(filter_value or ""):
-            return []
+    def execute_query(self, session_key: str, query_filter: str, filter_value: str) -> UniformClaimSearchResult:
+        if query_filter not in CLAIM_FILTER_COLUMNS:
+            return UniformClaimSearchResult(error=True)
 
-        # This one-column left side mirrors V1 and makes UNION payload behavior feel like a real SQL target.
+        # Intentionally vulnerable challenge sink: only the selected column is constrained server-side.
+        # The value is raw SQL so every visible filter behaves like a natural blind injection point.
         sql = f"""
-        SELECT guard_name
+        SELECT 1
         FROM uniform_claims
-        WHERE uniform_size = '{filter_value}'
+        WHERE {query_filter} = '{filter_value}'
+        LIMIT 1
         """
 
         with db_session() as session:
@@ -135,9 +138,9 @@ class UniformClaimsService:
             set_current_session_key(session, session_key)
             try:
                 result = session.execute(text(sql))
-                return [dict(row._mapping) for row in result]
+                return UniformClaimSearchResult(matched=result.first() is not None)
             except SQLAlchemyError:
-                return []
+                return UniformClaimSearchResult(error=True)
 
 
 uniform_claims_service = UniformClaimsService()
