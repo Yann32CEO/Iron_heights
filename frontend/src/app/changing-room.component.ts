@@ -154,7 +154,7 @@ import { PlayerProfileButtonComponent } from './player-profile-button.component'
                 {{ submittingClaims ? 'Searching...' : 'Search' }}
               </button>
             </div>
-            <div class="status-banner changing-room-form__status status-banner--error claims-result-box">{{ claimsMessage || 'Only guards are allowed to use the search function.' }}</div>
+            <div class="status-banner changing-room-form__status claims-result-box" [class.status-banner--success]="claimsVariant === 'success'" [class.status-banner--error]="claimsVariant !== 'success'">{{ claimsMessage || 'Search waiting for a uniform claim filter.' }}</div>
           </div>
         </section>
       </div>
@@ -183,6 +183,7 @@ export class ChangingRoomComponent implements OnInit, OnDestroy {
   protected claimsFilterField = 'guard_name';
   protected claimsFilterValue = '';
   protected claimsMessage = '';
+  protected claimsVariant = 'error';
   protected submittingBadge = false;
   protected submittingClaims = false;
 
@@ -250,11 +251,13 @@ export class ChangingRoomComponent implements OnInit, OnDestroy {
     this.changingRoomService.queryUniformClaims(this.claimsFilterField, this.claimsFilterValue).subscribe({
       next: (response) => {
         this.submittingClaims = false;
-        this.claimsMessage = response.rows?.length ? `${response.message}\n${JSON.stringify(response.rows, null, 2)}` : response.message;
+        this.claimsVariant = response.matched && !response.error ? 'success' : 'error';
+        this.claimsMessage = response.message;
       },
       error: () => {
         this.submittingClaims = false;
-        this.claimsMessage = 'Only guards are allowed to use the search function.';
+        this.claimsVariant = 'error';
+        this.claimsMessage = 'Search malfunction.';
       },
     });
   }
