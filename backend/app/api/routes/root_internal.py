@@ -4,16 +4,22 @@ from app.api.deps.session import get_current_session
 from app.models.session import SessionState
 from app.schemas.phase3 import SnarkClearanceResponse
 from app.services.phase3_service import phase3_service
+from app.services.uniform_claims_service import TARGET_CLAIM_BASE
 
 router = APIRouter(tags=["internal"])
 
 
 @router.get("/internal/tr4nsf3r/e-scrow")
-def transfer_escrow() -> dict[str, str]:
+def transfer_escrow() -> dict[str, object]:
+    # The leaked assignment must stay coupled to the seeded target claim row so the blind SQLi path remains solvable.
     return {
         "transferRef": "IH-XFER-2041",
         "service": "internal transfer escrow",
         "key": "5d1eb65185d419956edc1886ddc74bccaa8625a921050713d2c3d79985565c91",
+        "laundryAssignment": {
+            "shift": TARGET_CLAIM_BASE["shift"],
+            "wash_cycle": TARGET_CLAIM_BASE["wash_cycle"],
+        },
     }
 
 
