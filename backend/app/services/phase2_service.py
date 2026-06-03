@@ -39,6 +39,7 @@ ATTACK_PATTERN = re.compile(
     r"require\(|base64,|%3cscript|\.\./",
     re.IGNORECASE,
 )
+ARTEMIS_PROMPT_LIMIT = 10
 
 
 class Phase2Service:
@@ -204,7 +205,8 @@ class Phase2Service:
             )
 
         phase2.promptCount += 1
-        if phase2.promptCount > 3:
+        # Keep this prompt window aligned with the ARTEMIS console display in the frontend.
+        if phase2.promptCount > ARTEMIS_PROMPT_LIMIT:
             exposure = self._force_capture(phase2)
             return ArtemisChatResponse(captured=True, exposure=exposure, promptCount=phase2.promptCount)
 
