@@ -37,7 +37,8 @@ class UniformClaimsRequest(BaseModel):
 class UniformClaimsResponse(BaseModel):
     success: bool = False
     message: str
-    rows: list[dict] = []
+    matched: bool = False
+    error: bool = False
 
 
 class ClosetStateResponse(BaseModel):
