@@ -134,9 +134,19 @@ class ChangingRoomService:
     def uniform_claims(self, session: SessionState, query_filter: str, filter_value: str) -> UniformClaimsResponse:
         self._ensure_scene(session, {"changing-room"})
 
-        rows = uniform_claims_service.execute_query(session.session_id, query_filter, filter_value)
-        message = "Search complete." if session.role == "Guard" else "Only guards are allowed to use the search function."
-        return UniformClaimsResponse(success=session.role == "Guard", message=message, rows=rows)
+        result = uniform_claims_service.execute_query(session.session_id, query_filter, filter_value)
+        if result.error:
+            message = "Search malfunction."
+        elif result.matched:
+            message = "Matching uniform claim found."
+        else:
+            message = "No matching uniform claim found."
+        return UniformClaimsResponse(
+            success=not result.error,
+            message=message,
+            matched=result.matched,
+            error=result.error,
+        )
 
     def get_closet(self, session: SessionState) -> ClosetStateResponse:
         self._ensure_scene(session, {"closet"})
