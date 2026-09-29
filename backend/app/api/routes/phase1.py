@@ -1,7 +1,5 @@
-from pathlib import Path
-
 from fastapi import APIRouter, Depends
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 
 from app.api.deps.session import get_current_session
 from app.models.session import SessionState
@@ -9,9 +7,6 @@ from app.schemas.phase1 import Phase1CellOpenRequest, Phase1CellOpenResponse, Ph
 from app.services.phase1_service import phase1_service
 
 router = APIRouter(prefix="/phase1", tags=["phase1"])
-
-ASSETS_DIR = Path("/app/public-assets")
-PCAP_PATH = ASSETS_DIR / "phase1-transfer-intercept.pcap"
 
 
 @router.get("/cell", response_model=Phase1CellResponse)
@@ -25,6 +20,10 @@ def open_cell(payload: Phase1CellOpenRequest, session: SessionState = Depends(ge
 
 
 @router.get("/transfer-intercept.pcap")
-def transfer_intercept() -> FileResponse:
-    return FileResponse(PCAP_PATH, media_type="application/vnd.tcpdump.pcap", filename="phase1-transfer-intercept.pcap")
-
+def transfer_intercept(session: SessionState = Depends(get_current_session)) -> Response:
+    # The capture is session-bound: its AUTH-FRAME carries this player's IV and auth tag.
+    return Response(
+        content=phase1_service.build_transfer_intercept(session),
+        media_type="application/vnd.tcpdump.pcap",
+        headers={"Content-Disposition": 'attachment; filename="phase1-transfer-intercept.pcap"'},
+    )

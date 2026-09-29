@@ -75,9 +75,11 @@ import { Phase1CellState } from './phase1.types';
               </div>
               <div class="info-modal__body">
                 <p>
-                  An intercepted transfer transmission was recovered from facility traffic, but the relevant section appears to have been truncated. You can retrieve the capture
-                  <a href="/api/phase1/transfer-intercept.pcap" download> here</a>.
+                  A transmission in  the facility was intercepted during your transfer. Retrieve the capture below.
                 </p>
+                <div class="info-modal__download">
+                  <a class="action-button" href="/api/phase1/transfer-intercept.pcap" download>Download capture</a>
+                </div>
                 <section class="crypto-dump" aria-label="Cell lock encrypted payload">
                   <h3 class="crypto-dump__title">Encrypted Payload</h3>
                   <div class="crypto-dump__grid">

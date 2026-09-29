@@ -359,6 +359,11 @@ button, input, textarea, select { font: inherit; }
 }
 .info-modal__header h2 { margin: 0; }
 .info-modal__body p { line-height: 1.55; }
+.info-modal__download {
+  display: flex;
+  justify-content: center;
+  margin: 0.4rem 0 1.4rem;
+}
 .info-modal__card--wide {
   width: min(92vw, 860px);
 }
