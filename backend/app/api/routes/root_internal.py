@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Cookie, Depends
 
 from app.api.deps.session import get_current_session
+from app.content.phase1_cell_lock import PHASE1_ESCROW_KEY_HEX
 from app.models.session import SessionState
 from app.schemas.phase3 import SnarkClearanceResponse
 from app.services.phase3_service import phase3_service
@@ -15,7 +16,7 @@ def transfer_escrow() -> dict[str, object]:
     return {
         "transferRef": "IH-XFER-2041",
         "service": "internal transfer escrow",
-        "key": "5d1eb65185d419956edc1886ddc74bccaa8625a921050713d2c3d79985565c91",
+        "key": PHASE1_ESCROW_KEY_HEX,
         "laundryAssignment": {
             "shift": TARGET_CLAIM_BASE["shift"],
             "wash_cycle": TARGET_CLAIM_BASE["wash_cycle"],

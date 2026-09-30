@@ -6,6 +6,7 @@ from fastapi import HTTPException, status
 
 from app.content.phase1_identity import TARGET_GUARD_IDS, TARGET_GUARD_NAMES
 from app.models.session import SessionState
+from app.services.phase1_service import phase1_service
 from app.services.uniform_claims_service import uniform_claims_service
 
 
@@ -48,6 +49,8 @@ class SessionService:
         session.phase1.changing_room.uniformClaimsTargetName = session.phase1.changing_room.targetGuardName
         session.phase1.changing_room.targetGuardId = choice(TARGET_GUARD_IDS)
         uniform_claims_service.seed_session_claims(session.session_id, session.phase1.changing_room.targetGuardName)
+        # Each session gets its own cell code, IV and auth tag, all sealed with the shared escrow key.
+        session.phase1.cell_lock = phase1_service.generate_cell_lock()
         return session
 
     def get_session(self, session_id: str | None) -> SessionState:
