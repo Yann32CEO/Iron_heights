@@ -6,6 +6,7 @@ class CorridorStateResponse(BaseModel):
     role: str
     scene: str
     escapedAt: str | None = None
+    remainingMs: int | None = None
     timerDisabled: bool = False
     caughtCount: int
     kitchenDenied: bool = False

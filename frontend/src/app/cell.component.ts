@@ -75,7 +75,7 @@ import { Phase1CellState } from './phase1.types';
               </div>
               <div class="info-modal__body">
                 <p>
-                  A transmission in  the facility was intercepted during your transfer. Retrieve the capture below.
+                  A transmission in the facility was intercepted during your transfer. Retrieve the capture below.
                 </p>
                 <div class="info-modal__download">
                   <a class="action-button" href="/api/phase1/transfer-intercept.pcap" download>Download capture</a>

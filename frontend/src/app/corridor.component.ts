@@ -1,12 +1,12 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { Subscription, interval } from 'rxjs';
+import { Subscription } from 'rxjs';
 
 import { CorridorService } from './corridor.service';
-import { formatRemainingMs, getRemainingMs } from './countdown.util';
+import { startEscapeCountdown } from './countdown.util';
 import { CorridorState } from './corridor.types';
-import { isForbiddenError } from './http-error.util';
+import { isCaughtError, isForbiddenError } from './http-error.util';
 import { PlayerProfileButtonComponent } from './player-profile-button.component';
 
 @Component({
@@ -85,12 +85,54 @@ export class CorridorComponent implements OnInit, OnDestroy {
   private timeoutResolving = false;
 
   ngOnInit(): void {
+    this.load();
+  }
+
+  ngOnDestroy(): void {
+    this.countdownSubscription?.unsubscribe();
+  }
+
+  protected enterYard(): void {
+    this.corridorService.enterYard().subscribe({
+      next: () => void this.router.navigateByUrl('/phase1/yard'),
+      error: (error) => this.handleError(error),
+    });
+  }
+
+  protected tryKitchen(): void {
+    this.corridorService.tryKitchen().subscribe({
+      next: (response) => {
+        this.showKitchenDenied = !response.allowed && response.kitchenDenied;
+      },
+      error: (error) => this.handleError(error),
+    });
+  }
+
+  protected enterChangingRoom(): void {
+    this.corridorService.enterChangingRoom().subscribe({
+      next: () => void this.router.navigateByUrl('/phase1/changing-room'),
+      error: (error) => this.handleError(error),
+    });
+  }
+
+  protected backToCell(): void {
+    this.corridorService.returnToCell().subscribe({
+      next: () => void this.router.navigateByUrl('/phase1'),
+      error: (error) => this.handleError(error),
+    });
+  }
+
+  private load(): void {
     this.corridorService.getCorridor().subscribe({
       next: (state) => {
         this.corridorState = state;
-        this.startCountdown(state.escapedAt);
+        this.startCountdown(state.remainingMs);
       },
       error: (error) => {
+        if (isCaughtError(error)) {
+          this.bust();
+          return;
+        }
         if (isForbiddenError(error)) {
           this.corridorService.leaveYard().subscribe({
             next: () => void this.router.navigateByUrl('/phase1/corridor'),
@@ -101,51 +143,13 @@ export class CorridorComponent implements OnInit, OnDestroy {
     });
   }
 
-  ngOnDestroy(): void {
+  private startCountdown(remainingMs: number | null): void {
     this.countdownSubscription?.unsubscribe();
-  }
-
-  protected enterYard(): void {
-    this.corridorService.enterYard().subscribe({
-      next: () => void this.router.navigateByUrl('/phase1/yard'),
-      error: (error) => this.handleForbidden(error),
-    });
-  }
-
-  protected tryKitchen(): void {
-    this.corridorService.tryKitchen().subscribe({
-      next: (response) => {
-        this.showKitchenDenied = !response.allowed && response.kitchenDenied;
-      },
-      error: (error) => this.handleForbidden(error),
-    });
-  }
-
-  protected enterChangingRoom(): void {
-    this.corridorService.enterChangingRoom().subscribe({
-      next: () => void this.router.navigateByUrl('/phase1/changing-room'),
-      error: (error) => this.handleForbidden(error),
-    });
-  }
-
-  protected backToCell(): void {
-    this.corridorService.returnToCell().subscribe({
-      next: () => void this.router.navigateByUrl('/phase1'),
-      error: (error) => this.handleForbidden(error),
-    });
-  }
-
-  private startCountdown(escapedAt: string | null): void {
-    this.countdownSubscription?.unsubscribe();
-    this.remainingTime = formatRemainingMs(getRemainingMs(escapedAt));
-    this.countdownSubscription = interval(1000).subscribe(() => {
-      const remainingMs = getRemainingMs(escapedAt);
-      this.remainingTime = formatRemainingMs(remainingMs);
-      if (remainingMs <= 0) {
-        this.countdownSubscription?.unsubscribe();
-        this.resolveTimeout();
-      }
-    });
+    this.countdownSubscription = startEscapeCountdown(
+      remainingMs,
+      (label) => (this.remainingTime = label),
+      () => this.resolveTimeout(),
+    );
   }
 
   private resolveTimeout(): void {
@@ -155,19 +159,29 @@ export class CorridorComponent implements OnInit, OnDestroy {
       next: (result) => {
         this.timeoutResolving = false;
         if (result.caught) {
-          this.showBusted = true;
+          this.bust();
           return;
         }
-        void this.router.navigateByUrl('/phase1/corridor');
+        // The server still sees time left: resync with its remaining time instead of stalling at 00:00.
+        this.load();
       },
       error: (error) => {
         this.timeoutResolving = false;
-        this.handleForbidden(error);
+        this.handleError(error);
       },
     });
   }
 
-  private handleForbidden(error: { status?: number }): void {
+  private bust(): void {
+    this.countdownSubscription?.unsubscribe();
+    this.showBusted = true;
+  }
+
+  private handleError(error: { status?: number }): void {
+    if (isCaughtError(error)) {
+      this.bust();
+      return;
+    }
     if (isForbiddenError(error)) {
       void this.router.navigateByUrl('/403');
     }

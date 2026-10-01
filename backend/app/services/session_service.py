@@ -44,7 +44,8 @@ class SessionService:
         session.scene = "cell"
         session.phase = "phase1"
         session.phase1.scene = "cell"
-        # Session creation locks the Phase 1 identity pair used by SQLi, stego, and Lost Badge.
+        # Session creation locks the Phase 1 identity pair: the name is found via the uniform_claims SQLi,
+        # the ID is brute-forced within the SEC-34xx range the notice stego reveals.
         session.phase1.changing_room.targetGuardName = choice(TARGET_GUARD_NAMES)
         session.phase1.changing_room.uniformClaimsTargetName = session.phase1.changing_room.targetGuardName
         session.phase1.changing_room.targetGuardId = choice(TARGET_GUARD_IDS)

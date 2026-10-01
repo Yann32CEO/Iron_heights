@@ -1,13 +1,13 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { Subscription, interval } from 'rxjs';
+import { Subscription } from 'rxjs';
 
 import { ChangingRoomService } from './changing-room.service';
 import { ClosetState } from './changing-room.types';
 import { CorridorService } from './corridor.service';
-import { formatRemainingMs, getRemainingMs } from './countdown.util';
-import { isForbiddenError } from './http-error.util';
+import { startEscapeCountdown } from './countdown.util';
+import { isCaughtError, isForbiddenError } from './http-error.util';
 import { PlayerProfileButtonComponent } from './player-profile-button.component';
 
 @Component({
@@ -31,7 +31,7 @@ import { PlayerProfileButtonComponent } from './player-profile-button.component'
           </section>
 
           <section class="changing-room-actions" aria-label="Closet controls">
-            <button class="action-button changing-room-actions__button" type="button" (click)="pickUniform()">Pick an Uniform</button>
+            <button class="action-button changing-room-actions__button" type="button" (click)="pickUniform()">Pick a Uniform</button>
           </section>
 
           <section class="hud-stack" aria-label="Closet status panels">
@@ -94,13 +94,7 @@ export class ClosetComponent implements OnInit, OnDestroy {
   private timeoutResolving = false;
 
   ngOnInit(): void {
-    this.changingRoomService.getCloset().subscribe({
-      next: (state) => {
-        this.state = state;
-        this.startCountdown(state.escapedAt);
-      },
-      error: (error) => this.handleForbidden(error),
-    });
+    this.load();
   }
 
   ngOnDestroy(): void {
@@ -109,22 +103,15 @@ export class ClosetComponent implements OnInit, OnDestroy {
 
   protected pickUniform(): void {
     this.changingRoomService.pickUniform().subscribe({
-      next: (state) => {
-        this.uniformCollected = state.uniformCollected;
-        this.collectedFlag = state.flag ?? '';
-        this.state = state;
-        if (state.timerDisabled || state.uniformCollected) {
-          this.countdownSubscription?.unsubscribe();
-        }
-      },
-      error: (error) => this.handleForbidden(error),
+      next: (state) => this.applyState(state),
+      error: (error) => this.handleError(error),
     });
   }
 
   protected backToCell(): void {
     this.corridorService.returnToCell().subscribe({
       next: () => void this.router.navigateByUrl('/phase1'),
-      error: (error) => this.handleForbidden(error),
+      error: (error) => this.handleError(error),
     });
   }
 
@@ -132,24 +119,27 @@ export class ClosetComponent implements OnInit, OnDestroy {
     void this.router.navigateByUrl('/phase2/security-hall');
   }
 
-  private startCountdown(escapedAt: string | null): void {
+  private load(): void {
+    this.changingRoomService.getCloset().subscribe({
+      next: (state) => this.applyState(state),
+      error: (error) => this.handleError(error),
+    });
+  }
+
+  private applyState(state: ClosetState): void {
+    this.state = state;
+    // A reload after the pickup comes back as collected, so the flag modal is shown again.
+    this.uniformCollected = state.uniformCollected;
+    this.collectedFlag = state.flag ?? '';
     this.countdownSubscription?.unsubscribe();
-    if (this.state?.timerDisabled || this.uniformCollected) {
+    if (state.timerDisabled || state.uniformCollected) {
       return;
     }
-    this.remainingTime = formatRemainingMs(getRemainingMs(escapedAt));
-    this.countdownSubscription = interval(1000).subscribe(() => {
-      if (this.uniformCollected) {
-        this.countdownSubscription?.unsubscribe();
-        return;
-      }
-      const remainingMs = getRemainingMs(escapedAt);
-      this.remainingTime = formatRemainingMs(remainingMs);
-      if (remainingMs <= 0) {
-        this.countdownSubscription?.unsubscribe();
-        this.resolveTimeout();
-      }
-    });
+    this.countdownSubscription = startEscapeCountdown(
+      state.remainingMs,
+      (label) => (this.remainingTime = label),
+      () => this.resolveTimeout(),
+    );
   }
 
   private resolveTimeout(): void {
@@ -159,19 +149,29 @@ export class ClosetComponent implements OnInit, OnDestroy {
       next: (result) => {
         this.timeoutResolving = false;
         if (result.caught) {
-          this.showBusted = true;
+          this.bust();
           return;
         }
-        void this.router.navigateByUrl('/phase1/closet');
+        // The server still sees time left: resync with its remaining time instead of stalling at 00:00.
+        this.load();
       },
       error: (error) => {
         this.timeoutResolving = false;
-        this.handleForbidden(error);
+        this.handleError(error);
       },
     });
   }
 
-  private handleForbidden(error: { status?: number }): void {
+  private bust(): void {
+    this.countdownSubscription?.unsubscribe();
+    this.showBusted = true;
+  }
+
+  private handleError(error: { status?: number }): void {
+    if (isCaughtError(error)) {
+      this.bust();
+      return;
+    }
     if (isForbiddenError(error)) {
       void this.router.navigateByUrl('/403');
     }

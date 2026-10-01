@@ -3,6 +3,7 @@ export interface ChangingRoomState {
   role: string;
   scene: string;
   escapedAt: string | null;
+  remainingMs: number | null;
   timerDisabled: boolean;
   caughtCount: number;
   uniformDenied: boolean;
@@ -10,6 +11,8 @@ export interface ChangingRoomState {
   lostBadgeVariant: string;
   temporaryBadgeIssued: boolean;
   staffRelayIssued: boolean;
+  lostBadgeStage: string;
+  remainingNameAttempts: number;
 }
 
 export interface LostBadgeResponse {
@@ -33,6 +36,7 @@ export interface ClosetState {
   role: string;
   scene: string;
   escapedAt: string | null;
+  remainingMs: number | null;
   timerDisabled: boolean;
   caughtCount: number;
   uniformCollected: boolean;

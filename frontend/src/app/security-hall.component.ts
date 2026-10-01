@@ -18,7 +18,6 @@ import { Phase2State } from './phase2.types';
         <div class="hero-overlay hero-overlay--phase hero-overlay--phase2"></div>
 
         <section class="phase-layout phase2-layout">
-          <a class="nav-chip" routerLink="/phase1/corridor">Back to Corridor</a>
           <app-player-profile-button [alias]="state.alias" [role]="state.role"></app-player-profile-button>
 
           <section class="hud-stack" aria-label="Phase 2 status panels">

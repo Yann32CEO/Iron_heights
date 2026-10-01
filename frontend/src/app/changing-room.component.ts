@@ -2,13 +2,13 @@ import { CommonModule } from '@angular/common';
 import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { Subscription, interval } from 'rxjs';
+import { Subscription } from 'rxjs';
 
 import { ChangingRoomService } from './changing-room.service';
 import { ChangingRoomState } from './changing-room.types';
-import { formatRemainingMs, getRemainingMs } from './countdown.util';
+import { startEscapeCountdown } from './countdown.util';
 import { CorridorService } from './corridor.service';
-import { isForbiddenError } from './http-error.util';
+import { isCaughtError, isForbiddenError } from './http-error.util';
 import { PlayerProfileButtonComponent } from './player-profile-button.component';
 
 @Component({
@@ -59,7 +59,11 @@ import { PlayerProfileButtonComponent } from './player-profile-button.component'
         <section class="info-modal__card busted-modal">
           <div class="info-modal__header"><h2>Busted</h2></div>
           <div class="info-modal__body">
-            <p>You stayed inside the window too long. The corridor locks down, the hunt begins, and the facility sends you back to the cell.</p>
+            @if (bustedReason === 'badge') {
+              <p>Three wrong names in a row. The verification terminal flags the request, and the guards walk you back to your cell.</p>
+            } @else {
+              <p>You stayed inside the window too long. The corridor locks down, the hunt begins, and the facility sends you back to the cell.</p>
+            }
             <button class="action-button busted-modal__button" type="button" (click)="backToCell()">Back to Cell</button>
           </div>
         </section>
@@ -100,6 +104,9 @@ import { PlayerProfileButtonComponent } from './player-profile-button.component'
                 {{ submittingBadge ? 'Requesting...' : lostBadgeStage === 'guard-id' ? 'Verify Guard ID' : 'Open Verification Checkpoint' }}
               </button>
             </div>
+            @if (lostBadgeStage === 'guard-name') {
+              <p class="changing-room-form__attempts">Name attempts left: {{ remainingNameAttempts }}</p>
+            }
             @if (badgeMessage) {
               <p class="status-banner changing-room-form__status" [class.status-banner--success]="badgeVariant === 'success'" [class.status-banner--error]="badgeVariant !== 'success'">{{ badgeMessage }}</p>
             }
@@ -140,7 +147,6 @@ import { PlayerProfileButtonComponent } from './player-profile-button.component'
               <div class="claims-form__controls">
                 <label class="claims-form__label" for="claims-filter-field">Filter</label>
                 <select id="claims-filter-field" class="code-panel__input claims-form__select" [(ngModel)]="claimsFilterField" name="claimsFilterField">
-                  <option value="guard_id">guard_id</option>
                   <option value="guard_name">guard_name</option>
                   <option value="locker">locker</option>
                   <option value="shift">shift</option>
@@ -170,6 +176,7 @@ export class ChangingRoomComponent implements OnInit, OnDestroy {
   protected state: ChangingRoomState | null = null;
   protected remainingTime = '01:30';
   protected showBusted = false;
+  protected bustedReason: 'timer' | 'badge' = 'timer';
   protected showUniformDenied = false;
   protected showLostBadge = false;
   protected showInspectNotice = false;
@@ -178,6 +185,7 @@ export class ChangingRoomComponent implements OnInit, OnDestroy {
   protected badgeMessage = '';
   protected badgeVariant = 'error';
   protected lostBadgeStage = 'guard-name';
+  protected remainingNameAttempts = 3;
   protected guardNameInput = '';
   protected guardIdInput = '';
   protected claimsFilterField = 'guard_name';
@@ -191,18 +199,7 @@ export class ChangingRoomComponent implements OnInit, OnDestroy {
   private timeoutResolving = false;
 
   ngOnInit(): void {
-    this.changingRoomService.getChangingRoom().subscribe({
-      next: (state) => {
-        this.state = state;
-        this.showUniformDenied = state.uniformDenied;
-        this.hasTemporaryBadge = state.temporaryBadgeIssued;
-        this.badgeMessage = state.lostBadgeMessage;
-        this.badgeVariant = state.lostBadgeVariant || 'error';
-        this.showLostBadge = Boolean(state.lostBadgeMessage);
-        this.startCountdown(state.escapedAt);
-      },
-      error: (error) => this.handleForbidden(error),
-    });
+    this.load();
   }
 
   ngOnDestroy(): void {
@@ -218,27 +215,36 @@ export class ChangingRoomComponent implements OnInit, OnDestroy {
         }
         this.showUniformDenied = state.uniformDenied;
       },
-      error: (error) => this.handleForbidden(error),
+      error: (error) => this.handleError(error),
     });
   }
 
   protected submitLostBadge(): void {
     if (this.submittingBadge) return;
     this.submittingBadge = true;
+    const previousStage = this.lostBadgeStage;
     this.changingRoomService.submitLostBadge(this.guardNameInput, this.guardIdInput).subscribe({
       next: (response) => {
         this.submittingBadge = false;
         this.badgeMessage = response.message;
-        this.badgeVariant = response.success || response.message === 'Verification checkpoint opened' ? 'success' : 'error';
+        // Success is either the badge itself or the name checkpoint opening (stage moves to guard-id).
+        const checkpointOpened = previousStage === 'guard-name' && response.stage === 'guard-id';
+        this.badgeVariant = response.success || checkpointOpened ? 'success' : 'error';
         this.hasTemporaryBadge = response.temporaryBadgeIssued;
         this.lostBadgeStage = response.stage === 'guard-id' ? 'guard-id' : 'guard-name';
+        this.remainingNameAttempts = response.remainingNameAttempts;
         if (response.busted) {
           this.showLostBadge = false;
-          this.showBusted = true;
+          this.bust('badge');
         }
       },
-      error: () => {
+      error: (error) => {
         this.submittingBadge = false;
+        if (isCaughtError(error)) {
+          this.showLostBadge = false;
+          this.bust('timer');
+          return;
+        }
         this.badgeMessage = 'Recovery request denied';
         this.badgeVariant = 'error';
       },
@@ -254,8 +260,13 @@ export class ChangingRoomComponent implements OnInit, OnDestroy {
         this.claimsVariant = response.matched && !response.error ? 'success' : 'error';
         this.claimsMessage = response.message;
       },
-      error: () => {
+      error: (error) => {
         this.submittingClaims = false;
+        if (isCaughtError(error)) {
+          this.showInspectClothes = false;
+          this.bust('timer');
+          return;
+        }
         this.claimsVariant = 'error';
         this.claimsMessage = 'Search malfunction.';
       },
@@ -265,21 +276,35 @@ export class ChangingRoomComponent implements OnInit, OnDestroy {
   protected backToCell(): void {
     this.corridorService.returnToCell().subscribe({
       next: () => void this.router.navigateByUrl('/phase1'),
-      error: (error) => this.handleForbidden(error),
+      error: (error) => this.handleError(error),
     });
   }
 
-  private startCountdown(escapedAt: string | null): void {
-    this.countdownSubscription?.unsubscribe();
-    this.remainingTime = formatRemainingMs(getRemainingMs(escapedAt));
-    this.countdownSubscription = interval(1000).subscribe(() => {
-      const remainingMs = getRemainingMs(escapedAt);
-      this.remainingTime = formatRemainingMs(remainingMs);
-      if (remainingMs <= 0) {
-        this.countdownSubscription?.unsubscribe();
-        this.resolveTimeout();
-      }
+  private load(): void {
+    this.changingRoomService.getChangingRoom().subscribe({
+      next: (state) => {
+        this.state = state;
+        this.showUniformDenied = state.uniformDenied;
+        this.hasTemporaryBadge = state.temporaryBadgeIssued;
+        this.badgeMessage = state.lostBadgeMessage;
+        this.badgeVariant = state.lostBadgeVariant || 'error';
+        this.showLostBadge = Boolean(state.lostBadgeMessage);
+        // Resume the badge form at the stage the server is in, e.g. after a page reload.
+        this.lostBadgeStage = state.lostBadgeStage;
+        this.remainingNameAttempts = state.remainingNameAttempts;
+        this.startCountdown(state.remainingMs);
+      },
+      error: (error) => this.handleError(error),
     });
+  }
+
+  private startCountdown(remainingMs: number | null): void {
+    this.countdownSubscription?.unsubscribe();
+    this.countdownSubscription = startEscapeCountdown(
+      remainingMs,
+      (label) => (this.remainingTime = label),
+      () => this.resolveTimeout(),
+    );
   }
 
   private resolveTimeout(): void {
@@ -289,19 +314,30 @@ export class ChangingRoomComponent implements OnInit, OnDestroy {
       next: (result) => {
         this.timeoutResolving = false;
         if (result.caught) {
-          this.showBusted = true;
+          this.bust('timer');
           return;
         }
-        void this.router.navigateByUrl('/phase1/changing-room');
+        // The server still sees time left: resync with its remaining time instead of stalling at 00:00.
+        this.load();
       },
       error: (error) => {
         this.timeoutResolving = false;
-        this.handleForbidden(error);
+        this.handleError(error);
       },
     });
   }
 
-  private handleForbidden(error: { status?: number }): void {
+  private bust(reason: 'timer' | 'badge'): void {
+    this.countdownSubscription?.unsubscribe();
+    this.bustedReason = reason;
+    this.showBusted = true;
+  }
+
+  private handleError(error: { status?: number }): void {
+    if (isCaughtError(error)) {
+      this.bust('timer');
+      return;
+    }
     if (isForbiddenError(error)) {
       void this.router.navigateByUrl('/403');
     }

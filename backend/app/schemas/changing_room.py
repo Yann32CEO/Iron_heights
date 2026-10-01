@@ -6,6 +6,7 @@ class ChangingRoomStateResponse(BaseModel):
     role: str
     scene: str
     escapedAt: str | None = None
+    remainingMs: int | None = None
     timerDisabled: bool = False
     caughtCount: int
     uniformDenied: bool = False
@@ -13,6 +14,8 @@ class ChangingRoomStateResponse(BaseModel):
     lostBadgeVariant: str = ""
     temporaryBadgeIssued: bool = False
     staffRelayIssued: bool = False
+    lostBadgeStage: str = "guard-name"
+    remainingNameAttempts: int = 3
 
 
 class LostBadgeRequest(BaseModel):
@@ -46,6 +49,7 @@ class ClosetStateResponse(BaseModel):
     role: str
     scene: str
     escapedAt: str | None = None
+    remainingMs: int | None = None
     timerDisabled: bool = False
     caughtCount: int
     uniformCollected: bool = False
