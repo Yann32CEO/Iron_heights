@@ -3,6 +3,7 @@ export interface CorridorState {
   role: string;
   scene: string;
   escapedAt: string | null;
+  remainingMs: number | null;
   timerDisabled: boolean;
   caughtCount: number;
   kitchenDenied: boolean;

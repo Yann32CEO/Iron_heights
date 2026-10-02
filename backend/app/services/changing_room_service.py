@@ -1,5 +1,3 @@
-from datetime import UTC, datetime
-
 from fastapi import HTTPException, status
 
 from app.core.config import settings
@@ -10,14 +8,22 @@ from app.schemas.changing_room import (
     LostBadgeResponse,
     UniformClaimsResponse,
 )
+from app.services.corridor_service import corridor_service
 from app.services.flag_service import flag_service
 from app.services.uniform_claims_service import uniform_claims_service
+
+MAX_NAME_ATTEMPTS = 3
 
 
 class ChangingRoomService:
     def _ensure_scene(self, session: SessionState, allowed: set[str]) -> None:
         if session.phase1.scene not in allowed:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Restricted Block")
+        # Every changing room and closet action is still inside the escape window.
+        corridor_service.ensure_within_window(session)
+
+    def _remaining_name_attempts(self, session: SessionState) -> int:
+        return max(0, MAX_NAME_ATTEMPTS - session.phase1.changing_room.lostBadge.nameAttempts)
 
     def _build_state(
         self,
@@ -27,11 +33,13 @@ class ChangingRoomService:
         lost_badge_message: str = "",
         lost_badge_variant: str = "",
     ) -> ChangingRoomStateResponse:
+        lost_badge = session.phase1.changing_room.lostBadge
         return ChangingRoomStateResponse(
             alias=session.alias,
             role=session.role,
             scene=session.phase1.scene,
             escapedAt=session.phase1.escaped_at.isoformat() if session.phase1.escaped_at else None,
+            remainingMs=corridor_service.remaining_ms(session),
             timerDisabled=session.phase1.escaped_at is None,
             caughtCount=session.phase1.caught_count,
             uniformDenied=uniform_denied,
@@ -39,6 +47,9 @@ class ChangingRoomService:
             lostBadgeVariant=lost_badge_variant,
             temporaryBadgeIssued=session.phase1.changing_room.temporaryBadgeIssued,
             staffRelayIssued=session.phase1.changing_room.staffRelayIssued,
+            # Lets a reloaded page resume the badge form at the stage the server is in.
+            lostBadgeStage="guard-id" if lost_badge.nameVerified else "guard-name",
+            remainingNameAttempts=self._remaining_name_attempts(session),
         )
 
     def get_changing_room(self, session: SessionState) -> ChangingRoomStateResponse:
@@ -77,20 +88,13 @@ class ChangingRoomService:
                     message="Verification checkpoint opened",
                     stage="guard-id",
                     temporaryBadgeIssued=session.phase1.changing_room.temporaryBadgeIssued,
-                    remainingNameAttempts=max(0, 3 - lost_badge.nameAttempts),
+                    remainingNameAttempts=self._remaining_name_attempts(session),
                 )
 
             lost_badge.nameAttempts += 1
             session.phase1.changing_room.temporaryBadgeIssued = False
-            if lost_badge.nameAttempts >= 3:
-                session.phase1.caught_count += 1
-                session.role = "Inmate"
-                session.phase1.scene = "cell"
-                session.scene = "cell"
-                session.phase1.escaped_at = None
-                session.phase1.changing_room.closetUnlocked = False
-                lost_badge.nameAttempts = 0
-                lost_badge.nameVerified = False
+            if lost_badge.nameAttempts >= MAX_NAME_ATTEMPTS:
+                corridor_service.send_to_cell(session, caught=True)
                 return LostBadgeResponse(
                     success=False,
                     busted=True,
@@ -106,7 +110,7 @@ class ChangingRoomService:
                 message="Recovery request denied",
                 stage="guard-name",
                 temporaryBadgeIssued=False,
-                remainingNameAttempts=max(0, 3 - lost_badge.nameAttempts),
+                remainingNameAttempts=self._remaining_name_attempts(session),
             )
 
         normalized_guard_id = guard_id.strip().upper()
@@ -118,7 +122,7 @@ class ChangingRoomService:
                 message="Temporary night-shift badge issued",
                 stage="guard-id",
                 temporaryBadgeIssued=True,
-                remainingNameAttempts=max(0, 3 - lost_badge.nameAttempts),
+                remainingNameAttempts=self._remaining_name_attempts(session),
             )
 
         session.phase1.changing_room.temporaryBadgeIssued = False
@@ -128,7 +132,7 @@ class ChangingRoomService:
             message="Verification failed",
             stage="guard-id",
             temporaryBadgeIssued=False,
-            remainingNameAttempts=max(0, 3 - lost_badge.nameAttempts),
+            remainingNameAttempts=self._remaining_name_attempts(session),
         )
 
     def uniform_claims(self, session: SessionState, query_filter: str, filter_value: str) -> UniformClaimsResponse:
@@ -150,15 +154,18 @@ class ChangingRoomService:
 
     def get_closet(self, session: SessionState) -> ClosetStateResponse:
         self._ensure_scene(session, {"closet"})
+        # A reload after the pickup must show the collected uniform again, not a dead Pick button.
+        collected = settings.flag_phase1_uniform in session.captured_flags
         return ClosetStateResponse(
             alias=session.alias,
             role=session.role,
             scene="closet",
             escapedAt=session.phase1.escaped_at.isoformat() if session.phase1.escaped_at else None,
+            remainingMs=corridor_service.remaining_ms(session),
             timerDisabled=session.phase1.escaped_at is None,
             caughtCount=session.phase1.caught_count,
-            uniformCollected=False,
-            flag=None,
+            uniformCollected=collected,
+            flag=settings.flag_phase1_uniform if collected else None,
         )
 
     def pick_uniform(self, session: SessionState) -> ClosetStateResponse:
@@ -184,6 +191,7 @@ class ChangingRoomService:
             role=session.role,
             scene="closet",
             escapedAt=None,
+            remainingMs=None,
             timerDisabled=True,
             caughtCount=session.phase1.caught_count,
             uniformCollected=True,

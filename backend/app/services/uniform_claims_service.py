@@ -49,7 +49,6 @@ TARGET_CLAIM_BASE = {
 }
 
 CLAIM_FILTER_COLUMNS = {
-    "guard_id",
     "guard_name",
     "locker",
     "shift",

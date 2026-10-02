@@ -548,6 +548,13 @@ button, input, textarea, select { font: inherit; }
 .changing-room-form__status {
   margin-top: 0.5rem;
 }
+.changing-room-form__attempts {
+  margin: 0.6rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 .claims-form__controls {
   display: flex;
   flex-direction: column;

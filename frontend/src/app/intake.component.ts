@@ -52,10 +52,10 @@ export class IntakeComponent {
     this.errorMessage = '';
 
     this.sessionService.createSession(this.intakeForm.getRawValue().alias).subscribe({
-      next: (session) => {
+      next: () => {
         this.submitting = false;
-        const target = session.scene === 'corridor' ? '/phase1/corridor' : session.scene === 'yard' ? '/phase1/yard' : '/phase1';
-        void this.router.navigateByUrl(target);
+        // New sessions always start in the cell.
+        void this.router.navigateByUrl('/phase1');
       },
       error: () => {
         this.errorMessage = 'Intake failed. Try a different alias.';

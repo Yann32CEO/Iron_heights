@@ -12,12 +12,13 @@ from app.api.routes.phase3 import router as phase3_router
 from app.api.routes.root_internal import router as root_internal_router
 from app.api.routes.session import router as session_router
 from app.core.config import settings
-from app.db import init_database
+from app.db import init_database, reset_session_data
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_database()
+    reset_session_data()
     yield
 
 

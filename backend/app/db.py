@@ -31,6 +31,13 @@ def db_session() -> Iterator[Session]:
         session.close()
 
 
+def reset_session_data() -> None:
+    # Sessions live in memory, so claim rows from before a restart can never be reached again.
+    # TRUNCATE is used because FORCE ROW LEVEL SECURITY would hide the rows from a plain DELETE.
+    with engine.begin() as connection:
+        connection.execute(text("TRUNCATE uniform_claims RESTART IDENTITY"))
+
+
 def init_database() -> None:
     from app.models.uniform_claim import UniformClaim  # noqa: F401
 
