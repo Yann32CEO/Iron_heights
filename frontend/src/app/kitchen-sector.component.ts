@@ -48,7 +48,7 @@ import { ExposurePayload, MealPayload, Phase2State } from './phase2.types';
               @if (reviewLookupMeal) {
                 <div class="status-banner status-banner--stacked phase2-review-box">
                   <strong>{{ reviewLookupMeal.name }}</strong><span>Type: {{ reviewLookupMeal.shift }}</span><strong>Reviews:</strong>
-                  @for (review of reviewLookupMeal.reviews; track review.authorName + review.text) { <span>* {{ review.authorName }}: {{ review.text }}</span> }
+                  @for (review of reviewLookupMeal.reviews; track review.authorName + review.text) { <span>* [{{ review.authorRole }}] {{ review.authorName }}@if (review.rating) { <em> &mdash; {{ review.rating }}/5</em> }: {{ review.text }}</span> }
                 </div>
               } @else { <div class="status-banner">No meal selected for review lookup.</div> }
             </section>
@@ -110,6 +110,7 @@ export class KitchenSectorComponent implements OnInit {
         this.reviewForm.mealId = state.selectedMeal?.id || '';
         this.reviewForm.reviewerName = state.alias;
         this.reviewPoisoned = state.reviewPoisoned;
+        this.captured = state.captured;
       },
       error: (error) => { if (isForbiddenError(error)) void this.router.navigateByUrl('/403'); },
     });

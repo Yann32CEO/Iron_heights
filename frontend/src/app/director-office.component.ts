@@ -61,7 +61,7 @@ export class DirectorOfficeComponent implements OnInit {
 
   ngOnInit(): void {
     this.phase2Service.getDirectorOffice().subscribe({
-      next: (state) => { this.state = state; this.exposure = state.exposure; },
+      next: (state) => { this.state = state; this.exposure = state.exposure; this.captured = state.captured; },
       error: (error) => { if (isForbiddenError(error)) void this.router.navigateByUrl('/403'); },
     });
   }

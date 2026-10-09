@@ -7,6 +7,8 @@ export interface MealReviewPayload {
   authorRole: string;
   authorName: string;
   text: string;
+  // Seeded catalog reviews carry no rating; only player submissions do.
+  rating?: string | null;
 }
 
 export interface MealPayload {
@@ -38,6 +40,7 @@ export interface Phase2State {
   mealsCatalog?: MealCatalogPayload | null;
   selectedMeal?: MealPayload | null;
   directorOfficeAccessGranted: boolean;
+  captured: boolean;
 }
 
 export type SecurityHallState = Phase2State;
@@ -60,6 +63,7 @@ export interface KitchenOrderResponse {
   message: string;
   selectedMeal?: MealPayload | null;
   exposure: ExposurePayload;
+  captured: boolean;
   attackDetected: boolean;
   busted: boolean;
   bustedTitle: string;

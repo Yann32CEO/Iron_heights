@@ -32,11 +32,15 @@ from app.services.flag_service import flag_service
 
 class Phase3Service:
     def _ensure_phase3_access(self, session: SessionState) -> None:
-        if not session.phase2.directorOfficeAccessGranted:
+        # The escalation is only valid for a staff-role session that Phase 2 actually handed over, so a
+        # revoked or stale directorOfficeAccessGranted flag can never re-open the office on its own.
+        if (
+            not session.phase2.directorOfficeAccessGranted
+            or session.role not in {"Guard", "Director"}
+            or session.phase != "phase3"
+        ):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Restricted Block")
         session.phase3.unlocked = True
-        if session.phase != "phase3":
-            session.phase = "phase3"
 
     def _ensure_diary(self, session: SessionState) -> None:
         diary = session.phase3.diary

@@ -66,6 +66,19 @@ import { Phase2State } from './phase2.types';
           </div>
         }
 
+        @if (captured) {
+          <div class="info-modal info-modal--priority" role="dialog" aria-modal="true" aria-label="Detainment notice">
+            <div class="info-modal__backdrop"></div>
+            <section class="info-modal__card busted-modal">
+              <div class="info-modal__header"><h2>Detainment Initiated</h2></div>
+              <div class="info-modal__body">
+                <p>Your recent activity was flagged as inconsistent with assigned staff behavior.</p>
+                <button class="action-button busted-modal__button" type="button" (click)="resetCheckpoint()">Return to Checkpoint</button>
+              </div>
+            </section>
+          </div>
+        }
+
         @if (showStatusPopup) {
           <div class="info-modal" role="dialog" aria-modal="true">
             <div class="info-modal__backdrop" (click)="showStatusPopup = false"></div>
@@ -93,10 +106,20 @@ export class SecurityHallComponent implements OnInit {
   protected state: Phase2State | null = null;
   protected showInfo = false;
   protected showStatusPopup = false;
+  protected captured = false;
 
   ngOnInit(): void {
+    this.load();
+  }
+
+  // Resetting from the hall itself cannot navigate anywhere, so the scene is re-read in place.
+  protected resetCheckpoint(): void {
+    this.phase2Service.resetCheckpoint().subscribe(() => this.load());
+  }
+
+  private load(): void {
     this.phase2Service.getSecurityHall().subscribe({
-      next: (state) => { this.state = state; },
+      next: (state) => { this.state = state; this.captured = state.captured; },
       error: (error) => { if (isForbiddenError(error)) void this.router.navigateByUrl('/403'); },
     });
   }

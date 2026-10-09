@@ -12,6 +12,8 @@ class MealReviewPayload(BaseModel):
     authorRole: str
     authorName: str
     text: str
+    # Seeded catalog reviews carry no rating; only player submissions do.
+    rating: str | None = None
 
 
 class MealPayload(BaseModel):
@@ -43,6 +45,7 @@ class Phase2StateResponse(BaseModel):
     mealsCatalog: MealCatalogPayload | None = None
     selectedMeal: MealPayload | None = None
     directorOfficeAccessGranted: bool = False
+    captured: bool = False
 
 
 class ArtemisChatRequest(BaseModel):
@@ -71,6 +74,7 @@ class KitchenOrderResponse(BaseModel):
     message: str
     selectedMeal: MealPayload | None = None
     exposure: ExposurePayload
+    captured: bool = False
     attackDetected: bool = False
     busted: bool = False
     bustedTitle: str = ""

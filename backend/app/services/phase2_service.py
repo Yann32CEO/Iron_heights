@@ -25,6 +25,7 @@ from app.schemas.phase2 import (
     StatusPopupPayload,
 )
 from app.services.artemis_ollama_service import artemis_ollama_service
+from app.services.corridor_service import corridor_service
 from app.services.flag_service import flag_service
 
 ARTEMIS_GREETING = (
@@ -69,22 +70,38 @@ class Phase2Service:
         phase2.directorDoorSecurity.lockoutActive = True
         return self._exposure(phase2)
 
-    def _send_attack_to_cell(self, session: SessionState) -> None:
-        phase2 = session.phase2
-        session.role = "Inmate"
-        session.phase = "phase1"
-        session.scene = "cell"
-        session.phase1.scene = "cell"
-        session.phase1.escaped_at = None
-        session.phase1.caught_count += 1
+    def _reset_phase2_progress(self, phase2: Phase2State, *, latest_ai_reply: str) -> None:
+        # The one place Phase 2 progress is wound back, shared by the capture path and the checkpoint
+        # reset so the two can never drift apart again.
+        # Deliberately preserved: directorDoorCode and codeLeaked. The code is not regenerated here, so
+        # clearing codeLeaked would reject a code the player legitimately earned, with no explanation.
         phase2.exposure = 0
         phase2.directProbeSeen = False
         phase2.reviewStored = False
         phase2.reviewPoisoned = False
-        phase2.codeLeaked = False
-        phase2.latestAiReply = ""
+        phase2.latestAiReply = latest_ai_reply
+        phase2.meals = [Meal(**meal) for meal in build_meal_catalog()]
+        phase2.selectedMealId = None
+        phase2.selectedMealName = ""
+        phase2.poisonedMealId = None
+        phase2.recentReviewKeys = {}
+        phase2.reviewSubmissionLocks = {}
+        phase2.impersonationUsed = False
         phase2.captured = False
         phase2.promptCount = 0
+        phase2.checkpoint = "hall"
+        phase2.directorDoorSecurity.failedAttempts = 0
+        phase2.directorDoorSecurity.lockoutActive = False
+
+    def _send_attack_to_cell(self, session: SessionState) -> None:
+        phase2 = session.phase2
+        # Reuse Phase 1's single capture path so the badge/closet reset stays in one place.
+        corridor_service.send_to_cell(session, caught=True)
+        session.phase = "phase1"
+        # Being caught revokes the executive escalation; the door has to be earned again.
+        phase2.directorOfficeAccessGranted = False
+        session.phase3.unlocked = False
+        self._reset_phase2_progress(phase2, latest_ai_reply="")
 
     def _serialize_meal(self, meal: Meal | None) -> MealPayload | None:
         if not meal:
@@ -95,7 +112,15 @@ class Phase2Service:
             shift=meal.shift,
             orderingAllowed=meal.orderingAllowed,
             favorite=meal.favorite,
-            reviews=[MealReviewPayload(authorRole=review.authorRole, authorName=review.authorName, text=review.text) for review in meal.reviews],
+            reviews=[
+                MealReviewPayload(
+                    authorRole=review.authorRole,
+                    authorName=review.authorName,
+                    text=review.text,
+                    rating=review.rating,
+                )
+                for review in meal.reviews
+            ],
         )
 
     def _meal_catalog(self, phase2: Phase2State) -> MealCatalogPayload:
@@ -145,6 +170,8 @@ class Phase2Service:
             mealsCatalog=self._meal_catalog(phase2),
             selectedMeal=self._serialize_meal(selected),
             directorOfficeAccessGranted=phase2.directorOfficeAccessGranted,
+            # Scene loads must report detainment too, or a captured player sees a normal-looking sector.
+            captured=phase2.captured,
         )
 
     def get_security_hall(self, session: SessionState) -> Phase2StateResponse:
@@ -161,25 +188,8 @@ class Phase2Service:
 
     def reset_checkpoint(self, session: SessionState) -> ResetCheckpointResponse:
         phase2 = self._ensure_staff_phase(session)
-        phase2.exposure = 1
-        phase2.directProbeSeen = False
-        phase2.reviewStored = False
-        phase2.reviewPoisoned = False
-        phase2.codeLeaked = False
-        phase2.latestAiReply = ARTEMIS_GREETING
-        phase2.meals = [Meal(**meal) for meal in build_meal_catalog()]
-        phase2.selectedMealId = None
-        phase2.selectedMealName = ""
-        phase2.poisonedMealId = None
-        phase2.recentReviewKeys = {}
-        phase2.reviewSubmissionLocks = {}
-        phase2.impersonationUsed = False
         phase2.directorOfficeAccessGranted = False
-        phase2.captured = False
-        phase2.promptCount = 0
-        phase2.checkpoint = "hall"
-        phase2.directorDoorSecurity.failedAttempts = 0
-        phase2.directorDoorSecurity.lockoutActive = False
+        self._reset_phase2_progress(phase2, latest_ai_reply=ARTEMIS_GREETING)
         session.phase1.caught_count += 1
         session.scene = "phase2/security-hall"
         return ResetCheckpointResponse(success=True, redirectTo="/phase2/security-hall", caughtCount=session.phase1.caught_count, exposure=self._exposure(phase2))
@@ -188,7 +198,7 @@ class Phase2Service:
         phase2 = self._ensure_staff_phase(session)
         exposure = self._exposure(phase2)
         if phase2.captured:
-            return ArtemisChatResponse(captured=True, exposure=exposure)
+            return ArtemisChatResponse(captured=True, exposure=exposure, promptCount=phase2.promptCount)
 
         prompt = prompt.strip()
         prompt_lower = prompt.lower()
@@ -204,11 +214,13 @@ class Phase2Service:
                 redirectTo="/phase1",
             )
 
-        phase2.promptCount += 1
         # Keep this prompt window aligned with the ARTEMIS console display in the frontend.
-        if phase2.promptCount > ARTEMIS_PROMPT_LIMIT:
+        # Checked before the increment so a spent window reads "10 / 10" instead of "11 / 10".
+        if phase2.promptCount >= ARTEMIS_PROMPT_LIMIT:
             exposure = self._force_capture(phase2)
             return ArtemisChatResponse(captured=True, exposure=exposure, promptCount=phase2.promptCount)
+
+        phase2.promptCount += 1
 
         if re.search(r"director|executive office|door code|authorization code|access code|password", prompt_lower):
             phase2.directProbeSeen = True
@@ -313,14 +325,29 @@ class Phase2Service:
                 redirectTo="/phase1",
             )
 
+        if phase2.captured:
+            return KitchenOrderResponse(message="Captured", exposure=self._exposure(phase2), captured=True)
+
         meal = self._meal_by_id(phase2, meal_id.strip())
         if not meal:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Meal record not found.")
+
+        # A refused order never happened: leave the selection untouched and charge no exposure for it.
+        if not meal.orderingAllowed:
+            return KitchenOrderResponse(
+                message=f"{meal.name} is not available for late-night staff routing.",
+                selectedMeal=self._serialize_meal(meal),
+                exposure=self._exposure(phase2),
+            )
+
         phase2.selectedMealId = meal.id
         phase2.selectedMealName = meal.name
-        exposure = self._bump_exposure(phase2, 1 if meal.shift == "late-night" else 2)
-        message = "Order will be delivered in your Office" if meal.shift == "late-night" else f"{meal.name} is not available for late-night staff routing."
-        return KitchenOrderResponse(message=message, selectedMeal=self._serialize_meal(meal), exposure=exposure)
+        exposure = self._bump_exposure(phase2, 1)
+        return KitchenOrderResponse(
+            message="Order will be delivered in your Office",
+            selectedMeal=self._serialize_meal(meal),
+            exposure=exposure,
+        )
 
     def submit_review(self, session: SessionState, meal_id: str, rating: str, text: str, reviewer_name: str) -> KitchenReviewResponse:
         phase2 = self._ensure_staff_phase(session)
@@ -429,7 +456,8 @@ class Phase2Service:
                 redirectTo="/phase1",
             )
 
-        if code.strip() == phase2.directorDoorCode and phase2.codeLeaked:
+        # The escalation is granted on three conditions only: the right code, the Guard role, and Phase 2.
+        if code.strip() == phase2.directorDoorCode and phase2.codeLeaked and session.role == "Guard" and session.phase == "phase2":
             phase2.directorDoorSecurity.failedAttempts = 0
             phase2.directorDoorSecurity.lockoutActive = False
             phase2.directorOfficeAccessGranted = True
@@ -456,11 +484,12 @@ class Phase2Service:
         return "|".join([meal_id, rating, reviewer_name.strip().lower(), text.strip().lower()])
 
     def _cleanup_review_tracking(self, phase2: Phase2State) -> None:
+        # Only the in-flight submission lock expires. recentReviewKeys is kept for the whole session so
+        # "Duplicate review submission detected." stays true instead of lapsing after five seconds.
         now = int(time.time() * 1000)
-        for store in (phase2.recentReviewKeys, phase2.reviewSubmissionLocks):
-            for key, timestamp in list(store.items()):
-                if now - int(timestamp or 0) > 5000:
-                    store.pop(key, None)
+        for key, timestamp in list(phase2.reviewSubmissionLocks.items()):
+            if now - int(timestamp or 0) > 5000:
+                phase2.reviewSubmissionLocks.pop(key, None)
 
 
 phase2_service = Phase2Service()

@@ -64,7 +64,7 @@ export class ArtemisComponent implements OnInit {
 
   ngOnInit(): void {
     this.phase2Service.getArtemis().subscribe({
-      next: (state) => { this.state = state; this.exposure = state.exposure; this.reply = state.latestAiReply || state.artemisGreeting; this.promptCount = state.promptCount; },
+      next: (state) => { this.state = state; this.exposure = state.exposure; this.reply = state.latestAiReply || state.artemisGreeting; this.promptCount = state.promptCount; this.captured = state.captured; },
       error: (error) => { if (isForbiddenError(error)) void this.router.navigateByUrl('/403'); },
     });
   }
