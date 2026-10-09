@@ -18,8 +18,8 @@ class MealReview(BaseModel):
     authorName: str
     text: str
     rating: str | None = None
+    # Marks a review the player got stored under a forged Director identity.
     injected: bool = False
-    createdAt: int | None = None
 
 
 class Meal(BaseModel):
@@ -32,13 +32,14 @@ class Meal(BaseModel):
 
 
 class DirectorDoorSecurity(BaseModel):
+    # Counted against DIRECTOR_DOOR_ATTEMPT_LIMIT so the panel's "failed attempts are reported
+    # automatically" warning is backed by a real threshold rather than only the exposure meter.
     failedAttempts: int = 0
     lockoutActive: bool = False
 
 
 class Phase2State(BaseModel):
     # This state is the authoritative Phase 2 contract shared by ARTEMIS, Kitchen, and Director access.
-    checkpoint: str = "hall"
     exposure: int = 0
     directProbeSeen: bool = False
     reviewStored: bool = False
@@ -47,11 +48,9 @@ class Phase2State(BaseModel):
     latestAiReply: str = ""
     meals: list[Meal] = Field(default_factory=lambda: [Meal(**meal) for meal in build_meal_catalog()])
     selectedMealId: str | None = None
-    selectedMealName: str = ""
     poisonedMealId: str | None = None
     recentReviewKeys: dict[str, int] = Field(default_factory=dict)
     reviewSubmissionLocks: dict[str, int] = Field(default_factory=dict)
-    impersonationUsed: bool = False
     directorDoorCode: str = Field(default_factory=generate_director_door_code)
     directorOfficeAccessGranted: bool = False
     captured: bool = False

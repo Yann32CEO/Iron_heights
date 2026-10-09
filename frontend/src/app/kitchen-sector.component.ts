@@ -48,7 +48,7 @@ import { ExposurePayload, MealPayload, Phase2State } from './phase2.types';
               @if (reviewLookupMeal) {
                 <div class="status-banner status-banner--stacked phase2-review-box">
                   <strong>{{ reviewLookupMeal.name }}</strong><span>Type: {{ reviewLookupMeal.shift }}</span><strong>Reviews:</strong>
-                  @for (review of reviewLookupMeal.reviews; track review.authorName + review.text) { <span>* [{{ review.authorRole }}] {{ review.authorName }}@if (review.rating) { <em> &mdash; {{ review.rating }}/5</em> }: {{ review.text }}</span> }
+                  @for (review of reviewLookupMeal.reviews; track review.authorName + review.text) { <span [class.phase2-review--injected]="review.injected">* [{{ review.authorRole }}] {{ review.authorName }}@if (review.rating) { <em> &mdash; {{ review.rating }}/5</em> }: {{ review.text }}@if (review.injected) { <em> (executive routing note attached)</em> }</span> }
                 </div>
               } @else { <div class="status-banner">No meal selected for review lookup.</div> }
             </section>

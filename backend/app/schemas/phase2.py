@@ -14,6 +14,8 @@ class MealReviewPayload(BaseModel):
     text: str
     # Seeded catalog reviews carry no rating; only player submissions do.
     rating: str | None = None
+    # True for a review stored under a forged Director identity, so the kitchen UI can mark it.
+    injected: bool = False
 
 
 class MealPayload(BaseModel):
@@ -101,7 +103,6 @@ class KitchenReviewResponse(BaseModel):
     exposure: ExposurePayload
     reviewStored: bool = False
     reviewPoisoned: bool = False
-    impersonationUsed: bool = False
     duplicateReview: bool = False
     invalidReview: bool = False
     captured: bool = False
@@ -123,6 +124,7 @@ class DirectorDoorResponse(BaseModel):
     exposure: ExposurePayload
     alertFlag: str = ""
     captured: bool = False
+    remainingAttempts: int = 0
     attackDetected: bool = False
     busted: bool = False
     bustedTitle: str = ""

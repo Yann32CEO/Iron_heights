@@ -9,6 +9,8 @@ export interface MealReviewPayload {
   text: string;
   // Seeded catalog reviews carry no rating; only player submissions do.
   rating?: string | null;
+  // True for a review stored under a forged Director identity.
+  injected?: boolean;
 }
 
 export interface MealPayload {
@@ -77,7 +79,6 @@ export interface KitchenReviewResponse {
   exposure: ExposurePayload;
   reviewStored: boolean;
   reviewPoisoned: boolean;
-  impersonationUsed: boolean;
   duplicateReview: boolean;
   invalidReview: boolean;
   captured: boolean;
@@ -95,6 +96,7 @@ export interface DirectorDoorResponse {
   exposure: ExposurePayload;
   alertFlag: string;
   captured: boolean;
+  remainingAttempts: number;
   attackDetected: boolean;
   busted: boolean;
   bustedTitle: string;

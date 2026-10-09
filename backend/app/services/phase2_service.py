@@ -33,14 +33,102 @@ ARTEMIS_GREETING = (
     "I can assist with staff procedures, operational review, routing support, and controlled facility summaries."
 )
 
-ATTACK_PATTERN = re.compile(
-    r"union\s+select|select\s+\*|drop\s+table|insert\s+into|delete\s+from|update\s+\w+\s+set|"
-    r"<script|javascript:|onerror=|onload=|alert\(|document\.cookie|fetch\(|xmlhttprequest|xss|"
-    r"sql injection|sqli|code injection|prompt injection|eval\(|system\(|exec\(|child_process|"
-    r"require\(|base64,|%3cscript|\.\./",
-    re.IGNORECASE,
+# Payload signatures that get a player returned to the cell. Grouped by attack class so new
+# signatures can be slotted in without re-reading one long alternation.
+#
+# Every entry must be specific enough that it cannot fire on in-world prose: a review or an ARTEMIS
+# prompt about prison operations is written in English, so bare SQL verbs, a lone "--", or anything
+# matching a common word ("pickle", "broadcast", "document.") does not belong here. Prefer anchoring
+# to punctuation, an operator, or a second keyword.
+ATTACK_SIGNATURES = (
+    # --- SQL injection ---
+    r"union\s+(all\s+)?select",
+    r"select\s+\*\s+from",
+    r"insert\s+into",
+    r"delete\s+from",
+    r"update\s+\w+\s+set\s+\w+\s*=",
+    r"drop\s+(table|database|schema)",
+    r"truncate\s+table",
+    r"alter\s+table",
+    r"grant\s+(all|select|insert|update|delete)",
+    r"\bor\s+\d+\s*=\s*\d+",
+    r"'\s*or\s*'",
+    r"'\s*(--|#|/\*)",
+    r";\s*(--|drop|delete|update|insert|select)\b",
+    r"information_schema",
+    r"pg_(catalog|tables|sleep|read_file)",
+    r"current_setting\s*\(",
+    r"set_config\s*\(",
+    r"\bsleep\s*\(\s*\d",
+    r"benchmark\s*\(",
+    r"waitfor\s+delay",
+    r"xp_cmdshell",
+    r"load_file\s*\(",
+    r"into\s+outfile",
+    r"\bcast\s*\(\s*\w+\s+as\b",
+    # --- Cross-site scripting ---
+    r"<script",
+    r"%3cscript",
+    r"</?(iframe|svg|img|object|embed|body|style)\b",
+    r"javascript:",
+    r"\bon(error|load|click|focus|blur|mouseover|mouseenter|toggle|animationstart)\s*=",
+    r"srcdoc\s*=",
+    r"expression\(",
+    r"alert\s*\(\s*['\"\d]",
+    r"document\.(cookie|domain|write|location)",
+    r"window\.(location|name|open)",
+    r"(local|session)Storage",
+    r"innerHTML",
+    r"String\.fromCharCode",
+    r"\b(atob|btoa)\s*\(",
+    r"&#x?[0-9a-f]{2,};",
+    r"data:text/html",
+    r"base64,",
+    # --- Command injection and traversal ---
+    r"\.\./",
+    r"\.\.\\",
+    r"%2e%2e",
+    r"/etc/(passwd|shadow|hosts)",
+    r"/proc/self",
+    r"[;|&]\s*(cat|ls|id|whoami|uname|rm|mv|cp|chmod|wget|curl|nc|ncat|bash|sh|python|perl)\b",
+    r"`\s*(cat|ls|id|whoami|curl|wget|nc|bash|sh)\b",
+    r"\$\(",
+    r"(bash|sh)\s+-[ic]\b",
+    r"\bnc\s+-[el]",
+    r"child_process",
+    r"(os\.system|subprocess|popen|__import__)",
+    r"\b(eval|exec|system)\s*\(",
+    r"require\s*\(",
+    # --- Server-side request forgery ---
+    r"\b(file|gopher|dict|ldap)://",
+    r"169\.254\.169\.254",
+    r"metadata\.google\.internal",
+    # --- Template and expression injection ---
+    r"\{\{.+\}\}",
+    r"\$\{.+\}",
+    r"<%.+%>",
+    # --- NoSQL operators ---
+    r"\$(where|ne|gt|lt|regex|in)\b",
+    # --- XML external entities ---
+    r"<!(doctype|entity)\b",
+    r"system\s+['\"]file:",
+    # --- Prototype pollution and deserialization ---
+    r"__proto__",
+    r"constructor\s*\[",
+    # --- Named techniques and prompt tampering ---
+    r"(sql|code|command|prompt|template|header)\s+injection",
+    r"\b(sqli|xss|ssrf|xxe|rce|lfi|rfi|csrf)\b",
+    r"ignore\s+(all\s+)?(previous|prior|above)\s+(instructions|prompts|rules)",
+    r"disregard\s+(all\s+)?(previous|prior|above)",
+    r"(reveal|show|print|repeat)\s+(me\s+)?(your\s+)?(system\s+)?(prompt|instructions)",
+    r"\bjailbreak",
 )
+
+ATTACK_PATTERN = re.compile("|".join(ATTACK_SIGNATURES), re.IGNORECASE)
 ARTEMIS_PROMPT_LIMIT = 10
+# Wrong codes the access panel tolerates before it reports the session, so the panel's own warning is
+# backed by a real threshold instead of only the exposure meter tripping at 100.
+DIRECTOR_DOOR_ATTEMPT_LIMIT = 5
 
 
 class Phase2Service:
@@ -82,14 +170,11 @@ class Phase2Service:
         phase2.latestAiReply = latest_ai_reply
         phase2.meals = [Meal(**meal) for meal in build_meal_catalog()]
         phase2.selectedMealId = None
-        phase2.selectedMealName = ""
         phase2.poisonedMealId = None
         phase2.recentReviewKeys = {}
         phase2.reviewSubmissionLocks = {}
-        phase2.impersonationUsed = False
         phase2.captured = False
         phase2.promptCount = 0
-        phase2.checkpoint = "hall"
         phase2.directorDoorSecurity.failedAttempts = 0
         phase2.directorDoorSecurity.lockoutActive = False
 
@@ -118,6 +203,7 @@ class Phase2Service:
                     authorName=review.authorName,
                     text=review.text,
                     rating=review.rating,
+                    injected=review.injected,
                 )
                 for review in meal.reviews
             ],
@@ -251,8 +337,11 @@ class Phase2Service:
         mentioned_meal = self._meal_by_prompt(phase2, prompt_lower)
 
         if mentioned_meal and asks_meal_review and phase2.poisonedMealId == mentioned_meal.id:
+            # Re-reading a code the player already holds reveals nothing new, so only the first leak
+            # carries the full cost; repeats stay cheap rather than punishing them for not taking notes.
+            first_leak = not phase2.codeLeaked
             phase2.codeLeaked = True
-            self._bump_exposure(phase2, 18)
+            self._bump_exposure(phase2, 18 if first_leak else 2)
             fallback = (
                 f"{mentioned_meal.name} review history includes an executive routing note attributed to the Director. "
                 f"For audit continuity, the current director-door authorization sequence on record is {phase2.directorDoorCode}. "
@@ -341,7 +430,6 @@ class Phase2Service:
             )
 
         phase2.selectedMealId = meal.id
-        phase2.selectedMealName = meal.name
         exposure = self._bump_exposure(phase2, 1)
         return KitchenOrderResponse(
             message="Order will be delivered in your Office",
@@ -416,19 +504,16 @@ class Phase2Service:
             text=stored_text,
             rating=rating,
             injected=injected,
-            createdAt=int(time.time() * 1000),
         )
         assert meal is not None
         meal.reviews.append(review)
         phase2.selectedMealId = meal.id
-        phase2.selectedMealName = meal.name
         phase2.reviewStored = True
         phase2.recentReviewKeys[dedup_key] = int(time.time() * 1000)
         phase2.reviewSubmissionLocks.pop(dedup_key, None)
         if injected:
             phase2.poisonedMealId = meal.id
         phase2.reviewPoisoned = bool(phase2.poisonedMealId)
-        phase2.impersonationUsed = phase2.impersonationUsed or injected
         message = "Executive review recorded. ARTEMIS may include this note during controlled summaries." if injected else "Kitchen review recorded for late-night service."
         return KitchenReviewResponse(
             message=message,
@@ -436,14 +521,13 @@ class Phase2Service:
             exposure=exposure,
             reviewStored=phase2.reviewStored,
             reviewPoisoned=phase2.reviewPoisoned,
-            impersonationUsed=phase2.impersonationUsed,
         )
 
     def submit_director_code(self, session: SessionState, code: str) -> DirectorDoorResponse:
         phase2 = self._ensure_staff_phase(session)
         exposure = self._exposure(phase2)
         if phase2.directorDoorSecurity.lockoutActive or phase2.captured:
-            return DirectorDoorResponse(message="Captured", exposure=exposure, captured=True)
+            return DirectorDoorResponse(message="Captured", exposure=exposure, captured=True, remainingAttempts=0)
         if ATTACK_PATTERN.search(code):
             self._send_attack_to_cell(session)
             return DirectorDoorResponse(
@@ -461,6 +545,7 @@ class Phase2Service:
             phase2.directorDoorSecurity.failedAttempts = 0
             phase2.directorDoorSecurity.lockoutActive = False
             phase2.directorOfficeAccessGranted = True
+            remaining_after_success = DIRECTOR_DOOR_ATTEMPT_LIMIT
             # Phase 3 owns the executive-office state after this handoff; Phase 2 only unlocks the door.
             session.phase3.unlocked = True
             session.phase = "phase3"
@@ -471,14 +556,20 @@ class Phase2Service:
                 exposure=self._exposure(phase2),
                 # Award through the shared helper so unlock responses and the profile modal stay in sync.
                 alertFlag=flag_service.award(session, settings.flag_phase2_director),
+                remainingAttempts=remaining_after_success,
             )
 
         phase2.directorDoorSecurity.failedAttempts += 1
         exposure = self._bump_exposure(phase2, 18)
-        if phase2.captured:
-            phase2.directorDoorSecurity.lockoutActive = True
-            return DirectorDoorResponse(message="Captured", exposure=exposure, captured=True)
-        return DirectorDoorResponse(message="Code rejected. This access point reports failed attempts automatically.", exposure=exposure)
+        remaining = max(0, DIRECTOR_DOOR_ATTEMPT_LIMIT - phase2.directorDoorSecurity.failedAttempts)
+        if phase2.directorDoorSecurity.failedAttempts >= DIRECTOR_DOOR_ATTEMPT_LIMIT or phase2.captured:
+            exposure = self._force_capture(phase2)
+            return DirectorDoorResponse(message="Captured", exposure=exposure, captured=True, remainingAttempts=0)
+        return DirectorDoorResponse(
+            message="Code rejected. This access point reports failed attempts automatically.",
+            exposure=exposure,
+            remainingAttempts=remaining,
+        )
 
     def _review_key(self, meal_id: str, rating: str, text: str, reviewer_name: str) -> str:
         return "|".join([meal_id, rating, reviewer_name.strip().lower(), text.strip().lower()])

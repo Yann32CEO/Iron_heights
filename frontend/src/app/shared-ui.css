@@ -999,3 +999,9 @@ button, input, textarea, select { font: inherit; }
     bottom: 20%;
   }
 }
+
+.phase2-review--injected {
+  border-left: 2px solid rgba(230, 196, 164, 0.6);
+  padding-left: 0.5rem;
+  color: #f1dcc2;
+}

@@ -30,6 +30,7 @@ import { ExposurePayload, Phase2State } from './phase2.types';
               <button class="action-button" type="submit" [disabled]="submitting || !doorCode.trim()">{{ submitting ? 'Checking...' : 'Authorize' }}</button>
             </form>
             @if (doorMessage) { <div class="status-banner" [class.status-banner--success]="doorUnlocked" [class.status-banner--error]="!doorUnlocked">{{ doorMessage }}</div> }
+            @if (!doorUnlocked && attemptsWarning) { <div class="status-banner status-banner--error">{{ attemptsWarning }}</div> }
             @if (phase2Flag) { <div class="status-banner status-banner--success">{{ phase2Flag }}</div> }
             @if (state.directorOfficeAccessGranted) { <div class="status-banner status-banner--success">Executive office access is already active for this session.</div> }
           </section>
@@ -58,6 +59,7 @@ export class DirectorOfficeComponent implements OnInit {
   protected bustedMessage = '';
   protected showOfficeGranted = false;
   protected phase2Flag = '';
+  protected attemptsWarning = '';
 
   ngOnInit(): void {
     this.phase2Service.getDirectorOffice().subscribe({
@@ -75,6 +77,7 @@ export class DirectorOfficeComponent implements OnInit {
         if (result.captured) { this.captured = true; return; }
         const changed = result.exposure.state !== this.exposure.state || result.exposure.message !== this.exposure.message;
         this.exposure = result.exposure; this.doorMessage = result.message; this.doorUnlocked = result.success; this.phase2Flag = result.alertFlag || '';
+        this.attemptsWarning = result.success ? '' : `${result.remainingAttempts} attempt${result.remainingAttempts === 1 ? '' : 's'} remaining before this panel reports the session.`;
         if (changed) this.statusPopup = result.exposure;
         if (result.success) this.showOfficeGranted = true;
       },
